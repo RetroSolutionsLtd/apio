@@ -774,5 +774,19 @@
     "programmer": {
       "type": "openfpgaloader_usb-blaster"
     }
+  },
+  "iCE40-GameGear-IPS": {
+    "name": "iCE40-GameGear IPS Screen",
+    "fpga": "iCE40-LP1K-CM121",
+    "programmer": {
+      "type": "iceprog"
+    },
+    "usb": {
+      "vid": "0403",
+      "pid": "6010"
+    },
+    "ftdi": {
+      "desc": "(?:Dual RS2232H)|(?:Lattice HW-USBN-2B)"
+    }
   }
  } 
