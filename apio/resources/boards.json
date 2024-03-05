@@ -777,7 +777,7 @@
   },
   "iCE40-GameGear-IPS": {
     "name": "iCE40-GameGear IPS Screen",
-    "fpga": "iCE40-LP1K-CM121",
+    "fpga": "iCE40-LP1K-CB121",
     "programmer": {
       "type": "iceprog"
     },
