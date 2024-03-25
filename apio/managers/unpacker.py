@@ -11,21 +11,11 @@
 # ---- Licence Apache v2
 
 from os import chmod
-from os.path import splitext
 from pathlib import Path
 from tarfile import open as tarfile_open
-from time import mktime
 from zipfile import ZipFile
-
 import click
-
 from apio import util
-
-
-class UnsupportedArchiveType(util.ApioException):
-    """DOC: TODO"""
-
-    MESSAGE = "Can not unpack file '{0}'"
 
 
 class ArchiveBase:
@@ -84,18 +74,6 @@ class ZIPArchive(ArchiveBase):
         if attrs:
             chmod(file, attrs)
 
-    @staticmethod
-    def preserve_mtime(item, dest_dir):
-        """DOC: TODO"""
-
-        # -- Build the filename
-        file = str(Path(dest_dir) / item.filename)
-
-        util.change_filemtime(
-            file,
-            mktime(tuple(list(item.date_time) + [0] * 3)),
-        )
-
     def get_items(self):
         """DOC: TODO"""
 
@@ -105,34 +83,60 @@ class ZIPArchive(ArchiveBase):
         """DOC: TODO"""
 
         self.preserve_permissions(item, dest_dir)
-        self.preserve_mtime(item, dest_dir)
 
 
 # R0903: Too few public methods (1/2) (too-few-public-methods)
 # pylint: disable=R0903
 class FileUnpacker:
-    """DOC: TODO"""
+    """Class for unpacking compressed files"""
 
-    def __init__(self, archpath, dest_dir="."):
+    def __init__(self, archpath: Path, dest_dir=Path(".")):
+        """Initialize the unpacker object
+        * INPUT:
+          - archpath: filename with path to uncompress
+          - des_dir: Destination folder
+        """
+
         self._archpath = archpath
         self._dest_dir = dest_dir
         self._unpacker = None
 
-        _, archext = splitext(archpath.lower())
-        if archext in (".gz", ".bz2"):
+        # -- Get the file extension
+        arch_ext = archpath.suffix
+
+        # -- Select the unpacker... according to the file extension
+        # -- tar zip file
+        if arch_ext in (".gz", ".bz2"):
             self._unpacker = TARArchive(archpath)
-        elif archext == ".zip":
+
+        # -- Zip file
+        elif arch_ext == ".zip":
             self._unpacker = ZIPArchive(archpath)
 
+        # -- Archive type not known!! Raise an exception!
         if not self._unpacker:
-            raise UnsupportedArchiveType(archpath)
+            click.secho(f"Can not unpack file '{archpath}'")
+            raise util.ApioException()
 
-    def start(self):
-        """DOC: TODO"""
+    def start(self) -> bool:
+        """Start unpacking the file"""
 
+        # -- Build an array with all the files inside the tarball
+        items = self._unpacker.get_items()
+
+        # -- Progress bar...
         with click.progressbar(
-            self._unpacker.get_items(), label="Unpacking"
+            items,
+            length=len(items),
+            label=click.style("Unpacking..", fg="yellow"),
+            fill_char=click.style("█", fg="blue"),
+            empty_char=click.style("░", fg="blue"),
         ) as pbar:
+
+            # -- Go though all the files in the archive...
             for item in pbar:
+
+                # -- Extract the file!
                 self._unpacker.extract_item(item, self._dest_dir)
+
         return True

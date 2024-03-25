@@ -1,42 +1,56 @@
-"""DOC: TODO"""
-
 # -*- coding: utf-8 -*-
 # -- This file is part of the Apio project
 # -- (C) 2016-2021 FPGAwars
 # -- Author Jesús Arroyo
 # -- Licence GPLv2
+"""Implementation for the apio INSTALL command"""
 
 import sys
-import re
 import shutil
+
 from pathlib import Path
-from os import makedirs, remove, rename
-from os.path import isfile, isdir, basename
 import click
 import requests
 
-
 from apio import util
-
-# from apio.api import api_request
 from apio.resources import Resources
 from apio.profile import Profile
-
 from apio.managers.downloader import FileDownloader
 from apio.managers.unpacker import FileUnpacker
 
 
 # R0902: Too many instance attributes (12/7) (too-many-instance-attributes)
 # pylint: disable=R0902
+# R0801: Similar lines in 2 files
+# pylint: disable=R0801
 class Installer:
     """Installer. Class with methods for installing and managing
-    packages"""
+    apio packages"""
 
-    def __init__(self, package, platform="", force=False, checkversion=True):
+    def __init__(
+        self, package: str, platform: str = "", force=False, checkversion=True
+    ):
         """Class initialization. Parameters:
-        * package:  Package name to manage/install. It can have a prefix with
+        * package:  Package name to manage/install. It can have a sufix with
                     the version. Ex. "system@1.1.2"
         """
+
+        # -- Refactoring: Join together all the attributes
+        # -- This class has too many attributes (it is too complex)
+        # -- It should be refactor
+        # -- Al the attributes are shown together so that it is
+        # -- easier to refactor them in the future
+        self.package = None
+        self.version = None
+        self.force_install = None
+        self.packages_dir = None
+        self.resources = None
+        self.profile = None
+        self.spec_version = None
+        self.package_name = None
+        self.extension = None
+        self.download_urls = None
+        self.compressed_name = None
 
         # Parse version. The following attributes are used:
         #  * Installer.package: Package name (without version)
@@ -62,6 +76,7 @@ class Installer:
         # -- but some others don't (like the boards)
         self.resources = Resources(platform)
 
+        # -- Read the profile file
         self.profile = Profile()
 
         # -- Folder name were the packages are stored
@@ -71,25 +86,25 @@ class Installer:
         # --(It is defined in the resources/packages.json file)
         if self.package in self.resources.packages:
             # -- Store the package dir
-            self.packages_dir = str(Path(util.get_home_dir()) / dirname)
+            self.packages_dir = util.get_home_dir() / dirname
 
             # Get the data of the given package
-            data = self.resources.packages.get(self.package)
+            data = self.resources.packages[self.package]
 
             # Get the information about the valid versions
             distribution = self.resources.distribution
 
             # Get the spectec package version
-            self.spec_version = distribution.get("packages").get(self.package)
+            self.spec_version = distribution["packages"][self.package]
 
             # Get the package name (from resources/package.json file)
-            self.package_name = data.get("release").get("package_name")
+            self.package_name = data["release"]["package_name"]
 
             # Get the extension given to the toolchain. Tipically tar.gz
-            self.extension = data.get("release").get("extension")
+            self.extension = data["release"]["extension"]
 
-            # Get the current platform
-            platform = platform or self._get_platform()
+            # Get the current platform (if not forced by the user)
+            platform = platform or util.get_systype()
 
             # Check if the version is ok (It is only done if the
             # checkversion flag has been activated)
@@ -97,7 +112,7 @@ class Installer:
                 # Check version. The filename is read from the
                 # repostiroy
                 # -- Get the url of the version.txt file
-                url_version = data.get("release").get("url_version")
+                url_version = data["release"]["url_version"]
 
                 # -- Get the latest version
                 # -- It will exit in case of error
@@ -127,35 +142,74 @@ class Installer:
         # -- The package is kwnown but the version is not correct
         else:
             if self.package in self.profile.packages and checkversion is False:
-                self.packages_dir = str(Path(util.get_home_dir()) / dirname)
+                self.packages_dir = util.get_home_dir() / dirname
 
                 self.package_name = "toolchain-" + package
 
-        # -- If the Installer.package_dir is empty, is because the package
-        # -- was not known. Abort!
-        if self.packages_dir == "":
+        # -- If the Installer.package_dir property was not assigned,
+        # -- is because the package was not known. Abort!
+        if not self.packages_dir:
             click.secho(f"Error: no such package '{self.package}'", fg="red")
             sys.exit(1)
 
-    def get_download_url(self, data, platform):
-        """DOC: TODO"""
+    def get_download_url(self, package: dict, platform: str) -> str:
+        """Get the download URL for the given package
+        * INPUTS:
+          - package: Object with the package information:
+            * Respository
+              - name
+              - organization
+            * Release
+              - tag_name
+              - compressed_name
+              - uncompressed_name
+              - package_name
+              - extension
+              - url_version
+            * Description
+          - plaform: Destination platform (Ex. linux_x86_64)
+        * OUTPUT: The download URL
+          (Ex: 'https://github.com/FPGAwars/apio-examples/releases/
+                download/0.0.35/apio-examples-0.0.35.zip')
+        """
 
-        compressed_name = data.get("release").get("compressed_name")
-        self.compressed_name = compressed_name.replace(
-            "%V", self.version
-        ).replace("%P", platform)
-        uncompressed_name = data.get("release").get("uncompressed_name")
-        self.uncompressed_name = uncompressed_name.replace(
-            "%V", self.version
-        ).replace("%P", platform)
+        # -- Get the compressed name
+        # -- It is in fact a template, with paramters:
+        # --  %V : Version
+        # --  %P : Platfom
+        # -- Ex: 'apio-examples-%V'
+        compressed_name = package["release"]["compressed_name"]
 
-        tarball = self._get_tarball_name(self.compressed_name, self.extension)
+        # -- Replace the '%V' parameter with the package version
+        compressed_name_version = compressed_name.replace("%V", self.version)
 
-        download_url = self._get_download_url(
-            data.get("repository").get("name"),
-            data.get("repository").get("organization"),
-            data.get("release").get("tag_name").replace("%V", self.version),
-            tarball,
+        # -- Replace the '%P' parameter with the platform
+        self.compressed_name = compressed_name_version.replace("%P", platform)
+
+        # -- Get the uncompressed name. It is also a template with the
+        # -- same parameters: %V and %P
+        uncompressed_name = package["release"]["uncompressed_name"]
+
+        # -- Replace the '%V' parameter
+        uncompress_name_version = uncompressed_name.replace("%V", self.version)
+
+        # -- Replace the '%P' parameter
+        self.uncompressed_name = uncompress_name_version.replace(
+            "%P", platform
+        )
+
+        # -- Build the package tarball filename
+        # --- Ex. 'apio-examples-0.0.35.zip'
+        tarball = f"{self.compressed_name}.{self.extension}"
+
+        # -- Build the Download URL!
+        name = package["repository"]["name"]
+        organization = package["repository"]["organization"]
+        tag = package["release"]["tag_name"].replace("%V", self.version)
+
+        download_url = (
+            f"https://github.com/{organization}/{name}/releases/"
+            f"download/{tag}/{tarball}"
         )
 
         return download_url
@@ -163,31 +217,12 @@ class Installer:
     # W0703: Catching too general exception Exception (broad-except)
     # pylint: disable=W0703
     def install(self):
-        """Install the current package in the set in the Installer Object"""
-
-        # -- Warning if the package has been marked as obsolete
-        if self.package in self.resources.obsolete_pkgs:
-            # -- Get the string with the new package to use instead
-            # -- of the obsolete one (if available)
-            if self.resources.obsolete_pkgs[self.package] != "":
-                new_package = self.resources.obsolete_pkgs[self.package]
-                new_package_msg = f"Use {new_package} instead\n"
-            else:
-                new_package_msg = ""
-
-            click.secho(
-                f"Warning: Package {self.package} is obsolete. "
-                f"Will be removed in the future. "
-                f"{new_package_msg}",
-                fg="yellow",
-            )
+        """Install the current package set in the Installer Object"""
 
         click.secho(f"Installing {self.package} package:", fg="cyan")
 
         # -- Create the apio package folder, if it does not exit
-        if not isdir(self.packages_dir):
-            makedirs(self.packages_dir)
-        assert isdir(self.packages_dir)
+        self.packages_dir.mkdir(exist_ok=True)
 
         # -- The first step is downloading the package
         # -- This variable stores the path to the packages
@@ -195,8 +230,11 @@ class Installer:
 
         try:
             # Try full platform
-            platform_download_url = self.download_urls[0].get("url")
-            print(f"platform_download_url: {platform_download_url}")
+            # --  Ex. 'https://github.com/FPGAwars/apio-examples/releases/
+            # --       download/0.0.35/apio-examples-0.0.35.zip'
+            platform_download_url = self.download_urls[0]["url"]
+
+            # -- First step: Download the file
             dlpath = self._download(platform_download_url)
 
         # -- There is no write access to the package folder
@@ -206,59 +244,68 @@ class Installer:
             )
             click.secho(str(exc), fg="red")
 
-        # --
-        except Exception:
-            # Try os name
-            dlpath = self._install_os_package(platform_download_url)
+        # -- In case of any other error, try to install with the other
+        # -- url...
+        # --- ummm very likely this second installation can be removed...
+        # except Exception:
+        # Try os name
+        # dlpath = self._install_os_package(platform_download_url)
+        except util.ApioException:
+            click.secho("Error: Package not found\n", fg="red")
 
         # -- Second step: Install downloaded package
         self._install_package(dlpath)
 
-        # Rename unpacked dir to package dir
+        # -- Rename unpacked dir to package dir
         self._rename_unpacked_dir()
 
-    # W0703: Catching too general exception Exception (broad-except)
-    # pylint: disable=W0703
-    def _install_os_package(self, platform_download_url):
-        os_download_url = self.download_urls[1].get("url")
-        if platform_download_url != os_download_url:
-            name = self.download_urls[0].get("platform")
-            click.secho(
-                f"Warning: full platform does not match: {name}",
-                fg="yellow",
-            )
+    def _install_package(self, dlpath: Path):
+        """Install the given tarball"""
 
-            os_name = self.download_urls[1].get("platform")
-            click.secho(
-                f"         Trying OS name: {os_name}",
-                fg="yellow",
-            )
-            try:
-                return self._download(os_download_url)
-            except Exception as exc:
-                click.secho(f"Error: {str(exc)}", fg="red")
-        else:
-            click.secho(
-                "Error: package not availabe for this platform", fg="red"
-            )
-        return None
-
-    def _install_package(self, dlpath):
+        # -- Make sure there is a non-null filepath
         if dlpath:
-            package_dir = str(Path(self.packages_dir) / self.package_name)
-            if isdir(package_dir):
-                shutil.rmtree(package_dir)
-            if self.uncompressed_name:
-                self._unpack(dlpath, self.packages_dir)
-            else:
-                self._unpack(
-                    dlpath,
-                    package_dir,
-                )
 
-            remove(dlpath)
+            # -- Build the destination path
+            # -- Ex. '/home/obijuan/.apio/packages/examples'
+            package_dir = self.packages_dir / self.package_name
+
+            # -- Destination path is a folder (Already exist!)
+            if package_dir.is_dir():
+
+                # -- Remove it!
+                shutil.rmtree(package_dir)
+
+            # -- The packages that have the property uncompressed_name
+            # -- have a folder (with that name) inside the compresssed file
+            # -- Ex. The package examples has the folder apio-examples-0.0.35
+            # -- Because of this, it should be unpacked directly in the
+            # -- packages folder (Ex. /home/obijuan/.paio/packages) and then
+            # -- rename the folder to the package name
+            # -- (Ex. apio-examples-0.0.35 -> examples)
+            if self.uncompressed_name:
+
+                # -- Uncompress it!!
+                # -- Ex. folder: /home/obijuan/.apio/packages
+                self._unpack(dlpath, self.packages_dir)
+
+            # -- In this other case the package is directly
+            # -- unpack in the package_dir folder
+            # -- Ex. packages/tools-oss-cad-suite
+            else:
+                self._unpack(dlpath, package_dir)
+
+            # -- Remove the downloaded compress file
+            # -- Ex. remove '/home/obijuan/.apio/packages/
+            #                apio-examples-0.0.35.zip'
+            dlpath.unlink()
+
+            # -- Add package to profile
             self.profile.add_package(self.package, self.version)
+
+            # -- Save the profile
             self.profile.save()
+
+            # -- Inform the user!
             click.secho(
                 f"""Package \'{self.package}\' has been """
                 """successfully installed!""",
@@ -266,51 +313,63 @@ class Installer:
             )
 
     def _rename_unpacked_dir(self):
-        if self.uncompressed_name:
-            # -- Build the names
-            unpack_dir = str(Path(self.packages_dir) / self.uncompressed_name)
-            package_dir = str(Path(self.packages_dir) / self.package_name)
+        """Change the name of the downloaded file to the final one
+        Ex. '/home/obijuan/.apio/packages/apio-examples-0.0.35'
+        ---> '/home/obijuan/.apio/packages/examples'
+        Only for packages that has the property uncompressed_name
+        """
 
-            if isdir(unpack_dir):
-                rename(unpack_dir, package_dir)
+        if self.uncompressed_name:
+
+            # -- Build the names
+            # -- src folder (the one downloaded and installed)
+            # -- Ex. '/home/obijuan/.apio/packages/apio-examples-0.0.35'
+            unpack_dir = self.packages_dir / self.uncompressed_name
+
+            # -- New folder
+            # -. Ex, '/home/obijuan/.apio/packages/examples'
+            package_dir = self.packages_dir / self.package_name
+
+            # -- Rename it!
+            if unpack_dir.is_dir():
+                unpack_dir.rename(package_dir)
 
     def uninstall(self):
-        """DOC: TODO"""
+        """Uninstall the apio package"""
 
-        # -- Build the filename
-        file = str(Path(self.packages_dir) / self.package_name)
-        if isdir(file):
+        # -- Build the package filename
+        file = self.packages_dir / self.package_name
+
+        # -- Check that it is a folder...
+        if file.is_dir():
+
+            # -- Inform the user
             package_color = click.style(self.package, fg="cyan")
             click.echo(f"Uninstalling {package_color} package:")
+
+            # -- Remove the folder with all its content!!
             shutil.rmtree(file)
+
+            # -- Inform the user
             click.secho(
                 f"""Package \'{self.package}\' has been """
                 """successfully uninstalled!""",
                 fg="green",
             )
         else:
+            # -- Package not installed!
             util.show_package_path_error(self.package)
+
+        # -- Remove the package from the profile file
         self.profile.remove_package(self.package)
         self.profile.save()
-
-    @staticmethod
-    def _get_platform():
-        return util.get_systype()
-
-    @staticmethod
-    def _get_download_url(name, organization, tag, tarball):
-        url = (
-            f"https://github.com/{organization}/{name}/releases/"
-            + f"download/{tag}/{tarball}"
-        )
-        return url
 
     @staticmethod
     def _get_tarball_name(name, extension):
         tarball = f"{name}.{extension}"
         return tarball
 
-    def _get_valid_version(self, url_version=""):
+    def _get_valid_version(self, url_version: str) -> str:
         """Get the latest valid version from the given remote
         version.txt file. The file is downloaded and the version is
         read and returned
@@ -322,6 +381,8 @@ class Installer:
 
             The url_version for every package is located in the file:
             resources/packages.json
+
+        - OUTPUT: A string with the package version (Ex. '0.0.35')
         """
 
         if self.version:
@@ -368,63 +429,77 @@ class Installer:
         click.secho("Check the resources/packages.json file", fg="red")
         sys.exit(1)
 
-    # -- This function can be removed
-    @staticmethod
-    def _find_required_version(releases, tag_name, req_v):
-        for release in releases:
-            if "tag_name" in release:
-                tag = tag_name.replace("%V", req_v)
-                if tag == release.get("tag_name"):
-                    return req_v
-        return None
+    def _download(self, url: str) -> str:
+        """Download the given file (url). Return the path of
+        the destination file
+        * INPUTS:
+          * url: File to download
+        * OUTPUTS:
+          * The path of the destination file
+        """
+
+        # -- Check the installed version of the package
+        installed = self.profile.installed_version(self.package, self.version)
+
+        # -- Package already installed, and no force_install flag
+        # -- Nothing to download
+        if installed and not self.force_install:
+            click.secho(
+                f"Already installed. Version {self.version}",
+                fg="yellow",
+            )
+            return None
+
+        # ----- Download the package!
+        # -- Object for downloading the file
+        filed = FileDownloader(url, self.packages_dir)
+
+        # -- Get the destination path
+        filepath = filed.destination
+
+        # -- Inform the user
+        click.secho(f"Download {filed.fname}")
+
+        # -- Download start!
+        try:
+            filed.start()
+
+        # -- If the user press Ctrl-C (Abort)
+        except KeyboardInterrupt:
+
+            # -- Remove the file
+            if filepath.is_file():
+                filepath.unlink()
+
+            # -- Inform the user
+            click.secho("Abort download!", fg="red")
+            sys.exit(1)
+
+        # -- Return the destination path
+        return filepath
 
     @staticmethod
-    def _find_latest_version(releases, tag_name, spec_v):
-        print("->Find latest version")
+    def _unpack(pkgpath: Path, pkgdir: Path):
+        """Unpack the given file, in the pkgdir
+        * INPUTS:
+          - pkgpath: File to unpack
+          - pkgdir: Destination path
+        """
 
-        for release in releases:
-            if "tag_name" in release:
-                pattern = tag_name.replace("%V", "(?P<v>.*?)") + "$"
-                print(f"Pattern: {pattern}")
-                print(f"Release tag_name: {release.get('tag_name')}")
-                match = re.search(pattern, release.get("tag_name"))
-                if match:
-                    prerelease = release.get("prerelease", False)
-                    if not prerelease:
-                        version = match.group("v")
-                        print(f"Match: Version: {version}")
-                        if util.check_package_version(version, spec_v):
-                            return version
-        return None
-
-    def _download(self, url):
-        # Note: here we check only for the version of locally installed
-        # packages. For this reason we don't say what's the installation
-        # path.
-        if (
-            not self.profile.installed_version(self.package, self.version)
-            or self.force_install
-        ):
-            filed = FileDownloader(url, self.packages_dir)
-            filepath = filed.get_filepath()
-            click.secho("Download " + basename(filepath))
-            try:
-                filed.start()
-            except KeyboardInterrupt:
-                if isfile(filepath):
-                    remove(filepath)
-                click.secho("Abort download!", fg="red")
-                sys.exit(1)
-            return filepath
-
-        version = self.profile.get_package_version(self.package)
-        click.secho(
-            f"Already installed. Version {version}",
-            fg="yellow",
-        )
-        return None
-
-    @staticmethod
-    def _unpack(pkgpath, pkgdir):
+        # -- Build the unpacker object
         fileu = FileUnpacker(pkgpath, pkgdir)
-        return fileu.start()
+
+        # -- Unpack it!
+        success = fileu.start()
+
+        return success
+
+
+def list_packages(platform: str):
+    """List all the available packages"""
+
+    # -- Get all the resources
+    resources = Resources(platform)
+
+    # -- List the packages
+    resources.list_packages()

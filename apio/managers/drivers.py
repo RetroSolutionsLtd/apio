@@ -3,12 +3,10 @@
 # -- (C) 2016-2019 FPGAwars
 # -- Author Jesús Arroyo
 # -- Licence GPLv2
-"""TODO"""
+"""Manage board drivers"""
 
 
-import os
 import subprocess
-from os.path import isfile
 from pathlib import Path
 
 import click
@@ -60,8 +58,8 @@ SERIAL_UNINSTALL_DRIVER_INSTRUCTIONS = """
 """
 
 
-class Drivers:  # pragma: no cover
-    """TODO"""
+class Drivers:
+    """Class for managing the board drivers"""
 
     # -- The driver installation on linux consist of copying the rule files
     # -- to the /etc/udev/rules.d folder
@@ -71,14 +69,11 @@ class Drivers:  # pragma: no cover
     ftdi_rules_local_path = resources / "80-fpga-ftdi.rules"
 
     # -- Target rule file
-    ftdi_rules_system_path = "/etc/udev/rules.d/80-fpga-ftdi.rules"
-
-    # -- It was the target in older versions of apio
-    old_ftdi_rules_system_path = "/etc/udev/rules.d/80-icestick.rules"
+    ftdi_rules_system_path = Path("/etc/udev/rules.d/80-fpga-ftdi.rules")
 
     # Serial rules files paths
     serial_rules_local_path = resources / "80-fpga-serial.rules"
-    serial_rules_system_path = "/etc/udev/rules.d/80-fpga-serial.rules"
+    serial_rules_system_path = Path("/etc/udev/rules.d/80-fpga-serial.rules")
 
     # Driver to restore: mac os
     driver_c = ""
@@ -201,7 +196,8 @@ class Drivers:  # pragma: no cover
         click.secho("Configure FTDI drivers for FPGA")
 
         # -- Check if the target rules file already exists
-        if not isfile(self.ftdi_rules_system_path):
+        if not self.ftdi_rules_system_path.exists():
+
             # -- The file does not exist. Copy!
             # -- Execute the cmd: sudo cp src_file target_file
             subprocess.call(
@@ -209,7 +205,7 @@ class Drivers:  # pragma: no cover
                     "sudo",
                     "cp",
                     str(self.ftdi_rules_local_path),
-                    self.ftdi_rules_system_path,
+                    str(self.ftdi_rules_system_path),
                 ]
             )
 
@@ -227,16 +223,12 @@ class Drivers:  # pragma: no cover
         # -- For disabling the FTDI driver the .rules files should be
         # -- removed from the /etc/udev/rules.d/ folder
 
-        # -- Remove the old .rules files, if it exists
-        if isfile(self.old_ftdi_rules_system_path):
-            subprocess.call(["sudo", "rm", self.old_ftdi_rules_system_path])
-
         # -- Remove the .rules file, if it exists
-        if isfile(self.ftdi_rules_system_path):
+        if self.ftdi_rules_system_path.exists():
             click.secho("Revert FTDI drivers configuration")
 
             # -- Execute the sudo rm rules_file command
-            subprocess.call(["sudo", "rm", self.ftdi_rules_system_path])
+            subprocess.call(["sudo", "rm", str(self.ftdi_rules_system_path)])
 
             # -- # -- Execute the commands for reloading the udev system
             self._reload_rules()
@@ -252,7 +244,7 @@ class Drivers:  # pragma: no cover
         click.secho("Configure Serial drivers for FPGA")
 
         # -- Check if the target rules file already exists
-        if not isfile(self.serial_rules_system_path):
+        if not self.serial_rules_system_path.exists():
             # -- Add the user to the dialout group for
             # -- having access to the serial port
             group_added = self._add_dialout_group()
@@ -264,7 +256,7 @@ class Drivers:  # pragma: no cover
                     "sudo",
                     "cp",
                     str(self.serial_rules_local_path),
-                    self.serial_rules_system_path,
+                    str(self.serial_rules_system_path),
                 ]
             )
 
@@ -286,11 +278,11 @@ class Drivers:  # pragma: no cover
 
         # -- For disabling the serial driver the corresponding .rules file
         # -- should be removed, it it exists
-        if isfile(self.serial_rules_system_path):
+        if self.serial_rules_system_path.exists():
             click.secho("Revert Serial drivers configuration")
 
             # -- Execute the sudo rm rule_file cmd
-            subprocess.call(["sudo", "rm", self.serial_rules_system_path])
+            subprocess.call(["sudo", "rm", str(self.serial_rules_system_path)])
 
             # -- Execute the commands for reloading the udev system
             self._reload_rules()
@@ -409,10 +401,10 @@ class Drivers:  # pragma: no cover
     # pylint: disable=W0703
     def _ftdi_enable_windows(self):
         drivers_base_dir = util.get_package_dir("tools-drivers")
-        drivers_bin_dir = str(Path(drivers_base_dir) / "bin")
-        drivers_share_dir = str(Path(drivers_base_dir) / "share")
-        zadig_ini_path = str(Path(drivers_share_dir) / "zadig.ini")
-        zadig_ini = "zadig.ini"
+        drivers_bin_dir = drivers_base_dir / "bin"
+        drivers_share_dir = drivers_base_dir / "share"
+        zadig_ini_path = drivers_share_dir / "zadig.ini"
+        zadig_ini = Path("zadig.ini")
 
         try:
             if util.check_package(
@@ -438,8 +430,8 @@ class Drivers:  # pragma: no cover
             result = 1
         finally:
             # Remove zadig.ini
-            if isfile(zadig_ini):
-                os.remove(zadig_ini)
+            if zadig_ini.exists():
+                zadig_ini.unlink()
 
         if not isinstance(result, int):
             result = result.get("returncode")
@@ -457,7 +449,7 @@ class Drivers:  # pragma: no cover
     # pylint: disable=W0703
     def _serial_enable_windows(self):
         drivers_base_dir = util.get_package_dir("tools-drivers")
-        drivers_bin_dir = str(Path(drivers_base_dir) / "bin")
+        drivers_bin_dir = drivers_base_dir / "bin"
 
         try:
             if util.check_package(

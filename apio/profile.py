@@ -1,25 +1,24 @@
-"""DOC: TODO"""
-
 # -*- coding: utf-8 -*-
 # -- This file is part of the Apio project
 # -- (C) 2016-2019 FPGAwars
 # -- Author Jesús Arroyo
 # -- Licence GPLv2
+"""Manage the apio profile file"""
 
 import json
 from pathlib import Path
-from os.path import isfile, isdir
 import click
 import semantic_version
-
-
 from apio import util
 
 
 class Profile:
-    """Class for managing the apio profile file"""
+    """Class for managing the apio profile file
+    ex. /home/obijuan/.apio/profile.json
+    """
 
     def __init__(self):
+
         # ---- Set the default parameters
         # -- Apio default config mode
         self.config = {"exe": "default", "verbose": 0}
@@ -33,7 +32,8 @@ class Profile:
         self.packages = {}
 
         # -- Get the profile path
-        self._profile_path = str(Path(util.get_home_dir()) / "profile.json")
+        # -- Ex. '/home/obijuan/.apio'
+        self._profile_path = util.get_home_dir() / "profile.json"
 
         # print(f"(DEBUG) Profile path: {self._profile_path}")
         # print(f"(DEBUG) Home_dir: {util.get_home_dir()}")
@@ -41,104 +41,120 @@ class Profile:
         # -- Read the profile from file
         self.load()
 
-    def installed_version(self, name, version):
-        """DOC: TODO"""
+    def installed_version(self, name: str, version: str):
+        """Check the if the given package version is installed
+        * INPUT:
+          - name: Package name
+          - version: Version to install
+        * OUTPUT:
+          - True: Version installed, with the given version
+          - False:
+            - Package not installed
+            - Package installed but different version
+        """
 
+        # -- If the package is installed...
         if name in self.packages:
+
+            # -- Get the current version
             pkg_version = self.get_package_version(name)
-            pkg_version = self._convert_old_version(pkg_version)
-            version = self._convert_old_version(version)
-            return semantic_version.Version(
-                pkg_version
-            ) == semantic_version.Version(version)
-        return None
 
-    @staticmethod
-    def _convert_old_version(version):
-        # Convert old versions to new format
-        try:
-            ver = int(version)
-            version = f"1.{ver}.0"
-        except ValueError:
-            pass
-        return version
+            # -- Compare versions: current vs version to install
+            current_ver = semantic_version.Version(pkg_version)
+            to_install_ver = semantic_version.Version(version)
 
-    def check_exe_default(self):
-        """DOC: todo"""
+            same_versions = current_ver == to_install_ver
 
-        return self.config.get("exe", "") == "default"
+            # -- Return the state of the installed package:
+            # -- True: Package installed (with the given version)
+            # -- False: Package installed (but different version)
+            return same_versions
 
-    def add_package(self, name, version):
-        """DOC: todo"""
+        # -- Package not installed
+        return False
+
+    def check_exe_default(self) -> bool:
+        """Check if the exe mode is 'default'"""
+
+        is_exe_default = self.config["exe"] == "default"
+
+        return is_exe_default
+
+    def add_package(self, name: str, version: str):
+        """Add a package to the profile class"""
 
         self.packages[name] = {"version": version}
 
-    def add_setting(self, key, value):
-        """DOC: todo"""
+    def add_setting(self, key: str, value: str):
+        """Add one key,value pair in the settings"""
 
         self.settings[key] = value
 
-    def add_config(self, key, value):
-        """DOC: todo"""
+    def add_config(self, key: str, value: str):
+        """Add/modify a configuration value"""
 
-        if self.config.get(key, None) != value:
+        # -- Update the config value if it is different
+        if self.config[key] != value:
+
+            # -- Update config value
             self.config[key] = value
+
+            # -- Update it in the profile file
             self.save()
+
+            # -- Inform the user
             click.secho(
-                f"{self.labels.get(key, '')} mode updated: {value}",
+                f"{self.labels[key]} mode updated: {value}",
                 fg="green",
             )
+
+        # -- The same value is given
         else:
             click.secho(
-                f"{self.labels.get(key, '')} mode already {value}",
+                f"{self.labels[key]} mode already {value}",
                 fg="yellow",
             )
 
-    def remove_package(self, name):
-        """DOC: todo"""
+    def remove_package(self, name: str):
+        """Remove a package from the profile file"""
 
         if name in self.packages.keys():
             del self.packages[name]
 
-    def get_verbose_mode(self):
-        """DOC: todo"""
+    def get_verbose_mode(self) -> int:
+        """Get the verbose mode"""
 
-        return int(self.config.get("verbose", False))
+        return int(self.config["verbose"], False)
 
-    # W0703: Catching too general exception Exception (broad-except)
-    # pylint: disable=W0703
-    def get_package_version(self, name, release_name=""):
-        """DOC: todo"""
+    def get_package_version(self, name: str) -> str:
+        """Return the version of the given package"""
 
-        version = "0.0.0"
+        # -- If the package is installed
         if name in self.packages:
-            version = self.packages.get(name).get("version")
-        elif release_name:
-            dir_name = util.get_package_dir(release_name)
-            if isdir(dir_name):
-                filepath = str(Path(dir_name) / "package.json")
-                try:
-                    with open(filepath, "r", encoding="utf8") as json_file:
-                        tmp_data = json.load(json_file)
-                        if "version" in tmp_data.keys():
-                            version = tmp_data.get("version")
-                except Exception:
-                    pass
+
+            # -- Get the version
+            version = self.packages[name]["version"]
+
+        else:
+            version = "0.0.0"
+
         return version
 
     def load(self):
         """Load the profile from the file"""
 
         # -- Check if the file exist
-        if isfile(self._profile_path):
+        if self._profile_path.exists():
+
             # -- Open the profile file
             with open(self._profile_path, "r", encoding="utf8") as profile:
+
                 # -- Read the profile file
                 self._load_profile(profile)
 
-    def _load_profile(self, profile):
+    def _load_profile(self, profile: Path):
         """Read the profile file
-        profile: file descriptor
+        profile: Profile path (Ex. /home/obijuan/.apio/profile.json)
         """
 
         # -- Process the json file
@@ -146,7 +162,7 @@ class Profile:
 
         # -- Add the configuration object
         if "config" in data.keys():
-            self.config = data.get("config")
+            self.config = data["config"]
 
             if "exe" not in self.config.keys():
                 self.config["exe"] = "default"
@@ -156,19 +172,23 @@ class Profile:
 
         # -- Add the settings object
         if "settings" in data.keys():
-            self.settings = data.get("settings")
+            self.settings = data["settings"]
 
         # -- Add the packages version object
         if "packages" in data.keys():
-            self.packages = data.get("packages")
+            self.packages = data["packages"]
 
         else:
             self.packages = data  # Backward compatibility
 
     def save(self):
-        """DOC: todo"""
+        """Save the profile file"""
 
-        util.mkdir(self._profile_path)
+        # -- Create the profile folder, if it does not exist yet
+        path = self._profile_path.parent
+        if not path.exists():
+            path.mkdir()
+
         with open(self._profile_path, "w", encoding="utf8") as profile:
             data = {
                 "config": self.config,
@@ -178,10 +198,14 @@ class Profile:
             json.dump(data, profile, indent=4, sort_keys=True)
 
     def list(self):
-        """DOC: todo"""
+        """Print configuration parameters on the console"""
 
+        # -- Go through all the config parameters
         for key in self.config:
+
+            # -- Print the parameter
             click.secho(
-                f"{self.labels.get(key, '')} mode: {self.config.get(key, '')}",
+                f"{self.labels[key]} mode: {self.config[key]}",
                 fg="yellow",
             )
+        print()

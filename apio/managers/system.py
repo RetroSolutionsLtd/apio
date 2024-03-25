@@ -8,8 +8,6 @@
 
 import re
 import platform
-from pathlib import Path
-from os.path import isfile
 import click
 
 from apio import util
@@ -87,131 +85,188 @@ class System:  # pragma: no cover
 
         return returncode
 
-    def get_usb_devices(self):
-        """DOC: TODO"""
+    def get_usb_devices(self) -> list:
+        """Return a list of the connected USB devices
+         This list is obtained by running the "lsusb" command
 
-        # -- DEBUG
-        print("---------> DEBUG: get_usb_devices() <-------------")
+         * OUTPUT:  A list of objects with the usb devices
+        Ex. [{'hwid':'1d6b:0003'}, {'hwid':'8087:0aaa'}, ...]
 
+        It raises an exception in case of not being able to
+        execute the "lsusb" command
+        """
+
+        # -- Initial empty usb devices list
         usb_devices = []
+
+        # -- Run the "lsusb" command!
         result = self._run_command("lsusb", silent=True)
 
-        # -- DEBUG
-        print(f"-----------> DEBUG: {result=}")
+        # -- Sucess in executing the command
+        if result and result["returncode"] == 0:
 
-        if result and result.get("returncode") == 0:
-            usb_devices = self._parse_usb_devices(result.get("out"))
-        else:
-            raise RuntimeError("Error executing lsusb")
+            # -- Get the list of the usb devices. It is read
+            # -- from the command stdout
+            # -- Ex: [{'hwid':'1d6b:0003'}, {'hwid':'04f2:b68b'}...]
+            usb_devices = self._parse_usb_devices(result["out"])
 
-        return usb_devices
+            # -- Return the devices
+            return usb_devices
 
-    def get_ftdi_devices(self):
-        """DOC: TODO"""
+        # -- It was not possible to run the "lsusb" command
+        # -- for reading the usb devices
+        raise RuntimeError("Error executing lsusb")
 
+    def get_ftdi_devices(self) -> list:
+        """Return a list of the connected FTDI devices
+         This list is obtained by running the "lsftdi" command
+
+         * OUTPUT:  A list of objects with the FTDI devices
+        Ex. [{'index': '0', 'manufacturer': 'AlhambraBits',
+              'description': 'Alhambra II v1.0A - B07-095'}]
+
+        It raises an exception in case of not being able to
+        execute the "lsftdi" command
+        """
+
+        # -- Initial empty ftdi devices list
         ftdi_devices = []
+
+        # -- Run the "lsftdi" command!
         result = self._run_command("lsftdi", silent=True)
 
-        if result and result.get("returncode") == 0:
-            ftdi_devices = self._parse_ftdi_devices(result.get("out"))
-        else:
-            raise RuntimeError("Error executing lsftdi")
+        # -- Sucess in executing the command
+        if result and result["returncode"] == 0:
 
-        return ftdi_devices
+            # -- Get the list of the ftdi devices. It is read
+            # -- from the command stdout
+            # -- Ex: [{'index': '0', 'manufacturer': 'AlhambraBits',
+            # --      'description': 'Alhambra II v1.0A - B07-095'}]
+            ftdi_devices = self._parse_ftdi_devices(result["out"])
 
-    def _run_command(self, command, silent=False):
-        result = {}
+            # -- Return the devices
+            return ftdi_devices
 
-        # print(f"(DEBUG) Run Command: {command}")
+        # -- It was not possible to run the "lsftdi" command
+        # -- for reading the ftdi devices
+        raise RuntimeError("Error executing lsftdi")
 
-        # From apio >= 0.7.0, the system tools are locate in the
-        # oss-cad-suite package instead of the system package
-        # So first let's try to execute them from there
+    def _run_command(self, command: str, silent=False) -> dict:
+        """Execute the given system command
+        * INPUT:
+          * command: Command to execute  (Ex. "lsusb")
+          * silent: What to do with the command output
+            * False --> Do not print on the console
+            * True  --> Print on the console
+        * OUTPUT: A dictionary with the following properties:
+          * returncode:
+            * 0: OK! Success in executing the command
+            * x: An error has ocurred
+          * out: (string). Command output
+          * err: (string). Command error output
+
+        In case of not executing the command it returns none!
+        """
+
+        # The system tools are locate in the
+        # oss-cad-suite package
 
         # -- Get the package base dir
+        # -- Ex. "/home/obijuan/.apio/packages/tools-oss-cad-suite"
         system_base_dir = util.get_package_dir("tools-oss-cad-suite")
-        # print(f"(DEBUG) System_base_dir: {system_base_dir}")
 
-        # -- Get the folder were the binary file is locateds
-        system_bin_dir = Path(system_base_dir) / "bin"
-        # print(f"(DEBUG) System bin dir: {system_bin_dir}")
+        # -- Package not found
+        if not system_base_dir:
+            # -- Show the error message and a hint
+            # -- on how to install the package
+            util.show_package_path_error(self.package_name)
+            util.show_package_install_instructions(self.package_name)
+            raise util.ApioException()
+
+        # -- Get the folder were the binary file is located (PosixPath)
+        system_bin_dir = system_base_dir / "bin"
 
         # -- Get the executable filename
+        # -- Ex. Posix('/home/obijuan/.apio/packages/tools-oss-cad-suite/
+        # --            bin/lsusb')
         executable_file = system_bin_dir / (command + self.ext)
-        # print(f"(DEBUG) Executable file: {executable_file}")
 
-        # -- Set the stdout and stderr for executing the command
+        # -- Check if the file exist!
+        if not executable_file.exists():
+
+            # -- The command was not in the oss-cad-suit package
+            # -- Print an error message
+            click.secho("Error!\n", fg="red")
+            click.secho(f"Command not fount: {executable_file}", fg="red")
+
+            # -- Show the error message and a hint
+            # -- on how to install the package
+            util.show_package_path_error(self.package_name)
+            util.show_package_install_instructions(self.package_name)
+
+            return None
+
+        # -- The command exist! Let's execute it!
+
+        # -- Set the stdout and stderr callbacks, when executing the command
+        # -- Silent mode (True): No callback
         on_stdout = None if silent else self._on_stdout
         on_stderr = self._on_stderr
 
-        # -- Check if the executable exists
-        if isfile(executable_file):
-            # -- Execute the command!
-            result = util.exec_command(
-                executable_file,
-                stdout=util.AsyncPipe(on_stdout),
-                stderr=util.AsyncPipe(on_stderr),
-            )
+        # -- Execute the command!
+        result = util.exec_command(
+            executable_file,
+            stdout=util.AsyncPipe(on_stdout),
+            stderr=util.AsyncPipe(on_stderr),
+        )
 
-            # -- Return the result of the execution
-            return result
-
-        # -- The command does not exist in the tools-oss-cad-suite package
-        # -- Try with the tool-system package (old-package,
-        # -- (for compatibility reasons)
-
-        # -- Get the package base dir
-        system_base_dir = util.get_package_dir("tools-system")
-        print(f"System_base_dir: {system_base_dir}")
-
-        # -- Get the folder were the binary file is locateds
-        system_bin_dir = Path(system_base_dir) / "bin"
-        print(f"System bin dir: {system_bin_dir}")
-
-        # -- Get the executable filename
-        executable_file = system_bin_dir / (command + self.ext)
-        print(f"Executable file: {executable_file}")
-
-        # -- Check if the executable exists
-        if isfile(executable_file):
-            # -- Execute the command!
-            result = util.exec_command(
-                executable_file,
-                stdout=util.AsyncPipe(on_stdout),
-                stderr=util.AsyncPipe(on_stderr),
-            )
-
-            # -- Return the result of the execution
-            return result
-
-        # -- The command was not in the oss-cad-suit package
-        # -- The command was not in the old system package
-        # -- Show the error message and a hint on how to install the package
-        print("ERROR!!!!!!")
-        util.show_package_path_error(self.package_name)
-        util.show_package_install_instructions(self.package_name)
-
-        return None
+        # -- Return the result of the execution
+        return result
 
     @staticmethod
     def _on_stdout(line):
+        """Callback function. It is executed when the command prints
+        information on the standard output
+        """
         click.secho(line)
 
     @staticmethod
     def _on_stderr(line):
+        """Callback function. It is executed when the command prints
+        information on the standard error
+        """
         click.secho(line, fg="red")
 
     @staticmethod
-    def _parse_usb_devices(text):
+    def _parse_usb_devices(text: str) -> list:
+        """Get a list of usb devices from the input string
+        * INPUT: string that contains usb devices
+            (Ex. "... 1d6b:0003 ... 8087:0aaa ...")
+        * OUTPUT: A list of objects with the usb devices
+          Ex. [{'hwid':'1d6b:0003'}, {'hwid':'8087:0aaa'}, ...]
+        """
+
+        # -- Build the regular expression for representing
+        # -- patterns like '1d6b:0003'
         pattern = r"(?P<hwid>[a-f0-9]{4}:[a-f0-9]{4}?)\s"
+
+        # -- Get the list of strings with that patter
+        # -- Ex. ['1d6b:0003','8087:0aaa'...]
         hwids = re.findall(pattern, text)
 
+        # -- Output empty list
         usb_devices = []
 
+        # -- Build the list
         for hwid in hwids:
+
+            # -- Create the Object with the hardware id
             usb_device = {"hwid": hwid}
+
+            # -- Add the object to the output list
             usb_devices.append(usb_device)
 
+        # -- Return the final list
         return usb_devices
 
     @staticmethod

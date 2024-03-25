@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 # -- This file is part of the Apio project
-# -- (C) 2016-2019 FPGAwars
-# -- Author Jesús Arroyo
+# -- (C) 2016-2024 FPGAwars
+# -- Authors
+# --  * Jesús Arroyo (2016-2019)
+# --  * Juan Gonzalez (obijuan) (2019-2024)
 # -- Licence GPLv2
-"""TODO"""
+"""Main implementation of APIO SIM command"""
 
+from pathlib import Path
 import click
 from apio.managers.scons import SCons
 from apio import util
@@ -15,7 +18,7 @@ from apio import util
 @click.option(
     "-p",
     "--project-dir",
-    type=str,
+    type=Path,
     metavar="path",
     help="Set the target directory for the project.",
 )
@@ -29,5 +32,11 @@ from apio import util
 def cli(ctx, project_dir, testbench):
     """Launch the verilog simulation."""
 
-    exit_code = SCons(project_dir).sim({"testbench": testbench})
+    # -- Create the scons object
+    scons = SCons(project_dir)
+
+    # -- Simulate the project with the given parameters
+    exit_code = scons.sim({"testbench": testbench})
+
+    # -- Done!
     ctx.exit(exit_code)

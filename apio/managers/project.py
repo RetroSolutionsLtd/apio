@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # -- This file is part of the Apio project
-# -- (C) 2016-2019 FPGAwars
-# -- Author Juan González, Jesús Arroyo
+# -- (C) 2016-2024 FPGAwars
+# -- Authors
+# --  * Jesús Arroyo (2016-2019)
+# --  * Juan Gonzalez (obijuan) (2019-2024)
 # -- Licence GPLv2
-"""TODO"""
+"""Utilities for accesing the apio.ini projects"""
 
 import sys
 from os.path import isfile
@@ -12,18 +14,16 @@ from pathlib import Path
 # -- Config Parser: Use INI config files with easy
 # https://docs.python.org/3/library/configparser.html
 import configparser
-
 import click
-
-
 from apio import util
 from apio.resources import Resources
 
+# -- Apio projecto filename
 PROJECT_FILENAME = "apio.ini"
 
 
 class Project:
-    """TODO"""
+    """Class for managing apio projects"""
 
     def __init__(self):
         self.board = None
@@ -31,10 +31,10 @@ class Project:
         # -- Top module by default: main
         self.top_module = "main"
 
-    def create_sconstruct(self, project_dir="", arch=None, sayyes=False):
+    def create_sconstruct(self, project_dir: Path, arch=None, sayyes=False):
         """Creates a default SConstruct file"""
 
-        project_dir = Path(util.check_dir(project_dir))
+        project_dir = util.check_dir(project_dir)
 
         sconstruct_name = "SConstruct"
         sconstruct_path = project_dir / sconstruct_name
@@ -76,7 +76,7 @@ class Project:
         project_dir = util.check_dir(project_dir)
 
         # -- Build the filename
-        ini_path = str(Path(project_dir) / PROJECT_FILENAME)
+        ini_path = project_dir / PROJECT_FILENAME
 
         # Check board
         boards = Resources().boards
@@ -85,7 +85,7 @@ class Project:
             sys.exit(1)
 
         # -- The apio.ini file already exists...
-        if isfile(ini_path):
+        if ini_path.is_file():
 
             # -- Warn the user, unless the flag sayyes is active
             if not sayyes:
@@ -111,10 +111,10 @@ class Project:
         project_dir = util.check_dir(project_dir)
 
         # -- Build the filename
-        ini_path = str(Path(project_dir) / PROJECT_FILENAME)
+        ini_path = project_dir / PROJECT_FILENAME
 
         # -- Check if the apio.ini file exists
-        if not isfile(ini_path):
+        if not ini_path.is_file():
             click.secho(
                 "No apio.ini file. You should first create it:\n"
                 "  apio init --board <boardname>\n",

@@ -1,46 +1,63 @@
-"""DOC: TODO"""
-
 # -*- coding: utf-8 -*-
 # -- This file is part of the Apio project
-# -- (C) 2016-2019 FPGAwars
-# -- Author Jesús Arroyo
+# -- (C) 2016-2024 FPGAwars
+# -- Authors
+# --  * Jesús Arroyo (2016-2019)
+# --  * Juan Gonzalez (obijuan) (2019-2024)
 # -- Licence GPLv2
+"""Main implementation of APIO BUILD command"""
 
+
+from pathlib import Path
 import click
-
 from apio.managers.scons import SCons
 from apio import util
 
-
-# R0913: Too many arguments (6/5)
-# pylint: disable=R0913
-# pylint: disable=W0622
+# R0801: Similar lines in 2 files
 # pylint: disable=R0801
-@click.command("build", context_settings=util.context_settings())
+# ------------------
+# -- CONSTANTS
+# ------------------
+CMD = "build"  # -- Comand name
+BOARD = "board"  # -- Option
+FPGA = "fpga"  # -- Option
+PACK = "pack"  # -- Option
+TYPE = "type"  # -- Option
+SIZE = "size"  # -- Option
+PROJECT_DIR = "project_dir"  # -- Option
+VERBOSE = "verbose"  # -- Option
+VERBOSE_YOSYS = "verbose_yosys"  # -- Option
+VERBOSE_PNR = "verbose_pnr"  # -- Option
+TOP_MODULE = "top_module"  # -- Option
+
+
+# pylint: disable=R0801
+# R0801: Similar lines in 2 files
+@click.command(CMD, context_settings=util.context_settings())
 @click.pass_context
 @click.option(
-    "-b", "--board", type=str, metavar="board", help="Set the board."
+    "-b", f"--{BOARD}", type=str, metavar="str", help="Set the board."
 )
-@click.option("--fpga", type=str, metavar="fpga", help="Set the FPGA.")
+@click.option(f"--{FPGA}", type=str, metavar="str", help="Set the FPGA.")
 @click.option(
-    "--size", type=str, metavar="size", help="Set the FPGA type (1k/8k)."
-)
-@click.option(
-    "--type", type=str, metavar="type", help="Set the FPGA type (hx/lp)."
+    f"--{SIZE}", type=str, metavar="str", help="Set the FPGA type (1k/8k)."
 )
 @click.option(
-    "--pack", type=str, metavar="package", help="Set the FPGA package."
+    f"--{TYPE}", type=str, metavar="str", help="Set the FPGA type (hx/lp)."
+)
+@click.option(
+    f"--{PACK}", type=str, metavar="str", help="Set the FPGA package."
 )
 @click.option(
     "-p",
     "--project-dir",
-    type=str,
-    metavar="path",
+    type=Path,
+    metavar="str",
     help="Set the target directory for the project.",
 )
 @click.option(
     "-v",
-    "--verbose",
+    f"--{VERBOSE}",
     is_flag=True,
     help="Show the entire output of the command.",
 )
@@ -55,23 +72,23 @@ from apio import util
 @click.option(
     "--top-module",
     type=str,
-    metavar="top_module",
+    metavar="str",
     help="Set the top level module (w/o .v ending) for build.",
 )
-def cli(
-    ctx,
-    board,
-    fpga,
-    pack,
-    type,
-    size,
-    project_dir,
-    verbose,
-    verbose_yosys,
-    verbose_pnr,
-    top_module,
-):
+def cli(ctx, **kwargs):
     """Synthesize the bitstream."""
+
+    # -- Extract the arguments
+    project_dir = kwargs[PROJECT_DIR]
+    board = kwargs[BOARD]
+    fpga = kwargs[FPGA]
+    pack = kwargs[PACK]
+    _type = kwargs[TYPE]
+    size = kwargs[SIZE]
+    verbose = kwargs[VERBOSE]
+    verbose_yosys = kwargs[VERBOSE_YOSYS]
+    verbose_pnr = kwargs[VERBOSE_PNR]
+    top_module = kwargs[TOP_MODULE]
 
     # The bitstream is generated from the source files (verilog)
     # by means of the scons tool
@@ -86,7 +103,7 @@ def cli(
             "board": board,
             "fpga": fpga,
             "size": size,
-            "type": type,
+            "type": _type,
             "pack": pack,
             "verbose": {
                 "all": verbose,

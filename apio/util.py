@@ -1,5 +1,3 @@
-"""DOC: TODO"""
-
 # -*- coding: utf-8 -*-
 # -- This file is part of the Apio project
 # -- (C) 2016-2018 FPGAwars
@@ -9,18 +7,15 @@
 # ---- Platformio project
 # ---- (C) 2014-2016 Ivan Kravets <me@ikravets.com>
 # ---- Licence Apache v2
+"""Utility functions"""
 
-import string
 import sys
 import os
-import re
 import json
 import platform
 import subprocess
 from threading import Thread
-from os.path import isdir, isfile, join, dirname, exists
 from pathlib import Path
-
 import click
 import semantic_version
 from serial.tools.list_ports import comports
@@ -45,20 +40,26 @@ BIN = "bin"
 OSS_CAD_SUITE_FOLDER = f"tools-{OSS_CAD_SUITE}"
 GTKWAVE_FOLDER = f"tool-{GTKWAVE}"
 
+# -- AVAILABLE PLATFORMS
+PLATFORMS = [
+    "linux",
+    "linux_x86_64",
+    "linux_i686",
+    "linux_armv7l",
+    "linux_aarch64",
+    "windows",
+    "windows_x86",
+    "windows_amd64",
+    "darwin",
+    "darwin_arm64",
+]
+
 
 class ApioException(Exception):
-    """DOC: TODO"""
-
-    MESSAGE = None
-
-    def __str__(self):  # pragma: no cover
-        if self.MESSAGE:
-            return self.MESSAGE.format(*self.args)
-
-        return Exception.__str__(self)
+    """Apio error"""
 
 
-class AsyncPipe(Thread):  # pragma: no cover
+class AsyncPipe(Thread):
     """DOC: TODO"""
 
     def __init__(self, outcallback=None):
@@ -98,7 +99,7 @@ class AsyncPipe(Thread):  # pragma: no cover
         self.join()
 
 
-def get_full_path(folder: string) -> Path:
+def get_full_path(folder: str) -> Path:
     """Get the full path to the given folder
     Inputs:
       * folder: String with the folder name
@@ -138,9 +139,9 @@ def get_systype() -> str:
     arch = platform.machine().lower()
 
     # -- Special case for windows
-    # -- windows_amd64, windows_x86
     if type_ == "windows":
-        arch = "amd64" if platform.architecture()[0] == "64bit" else "x86"
+        # -- Assume all the windows to be 64-bits
+        arch = "amd64"
 
     # -- Add the architecture, if it exists
     if arch:
@@ -150,7 +151,7 @@ def get_systype() -> str:
     return platform_str
 
 
-def _get_projconf_option_dir(name, default=None):
+def _get_projconf_option_dir(name: str, default=None):
     """Return the project option with the given name
     These options are place either on environment variables or
     into the /etc/apio.json file in the case of debian distributions
@@ -177,16 +178,13 @@ def _get_projconf_option_dir(name, default=None):
         if _env_value.startswith('"') and _env_value.endswith('"'):
             _env_value = _env_value[1:-1]
 
-        # -- Debug: Print the environment variable (without quotes)
-        # print(f"DEBUG: {_env_name}: {_env_value}")
-
         return _env_value
 
     # -- Return the default home_dir
     return default
 
 
-def get_home_dir():
+def get_home_dir() -> Path:
     """Get the APIO Home dir. This is the apio folder where the profle is
     located and the packages installed. The APIO Home dir can be set in the
     APIO_HOME_DIR environment varible or in the /etc/apio.json file (in
@@ -214,20 +212,25 @@ def get_home_dir():
         click.secho(f"Error: no usable home directory {home_dir}", fg="red")
         sys.exit(1)
 
-    # Return the home_dir as a string
-    # In the future it should return the path object
-    return str(home_dir)
+    # Return the home_dir as a Path
+    return home_dir
 
 
-def get_package_dir(pkg_name):
+def get_package_dir(pkg_name: str) -> Path:
     """Return the APIO package dir of a given package
     Packages are installed in the following folder:
-    * Default: $APIO_HOME_DIR/packages
-    * $APIO_PKG_DIR/packages: if the APIO_PKG_DIR env variable is set
-    * Return a String
+      * Default: $APIO_HOME_DIR/packages
+      * $APIO_PKG_DIR/packages: if the APIO_PKG_DIR env variable is set
+      * INPUT:
+        - pkg_name: Package name (Ex. 'examples')
+      * OUTPUT:
+        - The package folder (PosixPath)
+           (Ex. '/home/obijuan/.apio/packages/examples'))
+        - or None if the packageis not installed
     """
 
     # -- Get the apio home dir:
+    # -- Ex. '/home/obijuan/.apio'
     apio_home_dir = get_home_dir()
 
     # -- Get the APIO_PKG_DIR env variable
@@ -241,27 +244,18 @@ def get_package_dir(pkg_name):
 
     # -- Default value
     else:
-        pkg_home_dir = Path(apio_home_dir)
+        pkg_home_dir = apio_home_dir
 
     # -- Create the package folder
+    # -- Ex '/home/obijuan/.apio/packages/tools-oss-cad-suite'
     package_dir = pkg_home_dir / "packages" / pkg_name
 
     # -- Return the folder if it exists
     if package_dir.exists():
-        return str(package_dir)
+        return package_dir
 
-    # -- Show an error message (for debugging)
-    # click.secho(f"Folder does not exists: {package_dir}", fg="red")
-    # sys.exit(1)
-
-    # -- Return a null string if the folder does not exist
-    return ""
-
-
-def get_project_dir():
-    """DOC: TODO"""
-
-    return os.getcwd()
+    # -- No path...
+    return None
 
 
 def call(cmd):
@@ -298,7 +292,7 @@ def setup_environment():
     return bin_dir
 
 
-def set_env_variables(base_dir, bin_dir):
+def set_env_variables(base_dir: dict, bin_dir: dict):
     """Set the environment variables"""
 
     # -- Get the current system PATH
@@ -311,56 +305,55 @@ def set_env_variables(base_dir, bin_dir):
     # -- but only for windows platforms
     if platform.system() == "Windows":
         # -- Gtkwave package is installed
-        if bin_dir[GTKWAVE] != "":
-            path = os.pathsep.join([bin_dir.get(GTKWAVE), path])
+        if bin_dir[GTKWAVE]:
+            path = os.pathsep.join([str(bin_dir[GTKWAVE]), path])
 
     # -- Add the binary folders of the installed packages
     # -- to the path, except for the OSS_CAD_SUITE package
     for pack in base_dir:
-        if base_dir[pack] != "" and pack != OSS_CAD_SUITE:
-            path = os.pathsep.join([bin_dir[pack], path])
+        if base_dir[pack] and pack != OSS_CAD_SUITE:
+            path = os.pathsep.join([str(bin_dir[pack]), path])
 
     # -- Add the OSS_CAD_SUITE package to the path
     # -- if installed (Maximum priority)
-    if base_dir[OSS_CAD_SUITE] != "":
+    if base_dir[OSS_CAD_SUITE]:
         # -- Get the lib folder (where the shared libraries are located)
-        oss_cad_suite_lib = str(Path(base_dir[OSS_CAD_SUITE]) / "lib")
+        oss_cad_suite_lib = str(base_dir[OSS_CAD_SUITE] / "lib")
 
         # -- Add the lib folder
         path = os.pathsep.join([oss_cad_suite_lib, path])
-        path = os.pathsep.join([bin_dir[OSS_CAD_SUITE], path])
+        path = os.pathsep.join([str(bin_dir[OSS_CAD_SUITE]), path])
 
     # Add the virtual python environment to the path
     os.environ["PATH"] = path
 
-    # print(f" get_bin_dir(): {get_bin_dir()}")
-
-    # -- DEBUG
-    # print()
-    # print(f"PATH: {os.environ['PATH']}")
-    # print()
-
     # Add other environment variables
 
-    os.environ["IVL"] = str(Path(base_dir[OSS_CAD_SUITE]) / "lib" / "ivl")
+    os.environ["IVL"] = str(base_dir[OSS_CAD_SUITE] / "lib" / "ivl")
 
-    os.environ["ICEBOX"] = str(
-        Path(base_dir[OSS_CAD_SUITE]) / "share" / "icebox"
-    )
+    os.environ["ICEBOX"] = str(base_dir[OSS_CAD_SUITE] / "share" / "icebox")
 
-    os.environ["TRELLIS"] = str(
-        Path(base_dir[OSS_CAD_SUITE]) / "share" / "trellis"
-    )
+    os.environ["TRELLIS"] = str(base_dir[OSS_CAD_SUITE] / "share" / "trellis")
 
-    os.environ["YOSYS_LIB"] = str(
-        Path(base_dir[OSS_CAD_SUITE]) / "share" / "yosys"
-    )
+    os.environ["YOSYS_LIB"] = str(base_dir[OSS_CAD_SUITE] / "share" / "yosys")
 
 
-def resolve_packages(packages, installed_packages, spec_packages):
-    """Check the given packages.
-    * Check that they are installed
-    * Check that the versions are ok"""
+def resolve_packages(
+    packages: list, installed_packages: list, spec_packages: dict
+) -> bool:
+    """Check the given packages
+    * make sure they all are installed
+    * make sure they versions are ok and have no conflicts...
+    * INPUTS
+      * package: List of package names to check
+      * installed_packages: Dictionry with all the apio packages installed
+      * spec_packages: Dictionary with the spec version:
+        (Ex. {'drivers': '>=1.1.0,<1.2.0'....})
+
+    * OUTPUT:
+      * True: All the packages are ok!
+      * False: There is an error...
+    """
 
     # --- Get the table with the paths of all the apio packages
     base_dir = get_base_dir()
@@ -376,9 +369,11 @@ def resolve_packages(packages, installed_packages, spec_packages):
 
         spec_version = spec_packages.get(package, "")
 
-        check &= check_package(
-            package, version, spec_version, bin_dir.get(package)
-        )
+        # -- Get the package binary dir as a PosixPath object
+        _bin = bin_dir[package]
+
+        # -- Check this package
+        check &= check_package(package, version, spec_version, _bin)
 
     # -- Load packages
     if check:
@@ -404,24 +399,41 @@ def get_base_dir():
     return base_dir
 
 
-def get_bin_dir_table(base_dir):
+def get_bin_dir_table(base_dir: dict):
     """Return a table with the package name and the folder were
     the executable files are stored
-    * Input: Table with the package base_dir
+    * INPUT
+      -base_dir: Table with the package base_dir
     """
 
-    bin_dir = {
-        OSS_CAD_SUITE: str(Path(base_dir.get(OSS_CAD_SUITE)) / BIN),
-        GTKWAVE: str(Path(base_dir.get(GTKWAVE)) / BIN),
-    }
+    if base_dir[GTKWAVE]:
+        gtkwave_path = base_dir[GTKWAVE] / BIN
+    else:
+        gtkwave_path = None
+
+    if base_dir[OSS_CAD_SUITE]:
+        oss_cad_suite_path = base_dir[OSS_CAD_SUITE] / BIN
+    else:
+        oss_cad_suite_path = None
+
+    bin_dir = {OSS_CAD_SUITE: oss_cad_suite_path, GTKWAVE: gtkwave_path}
 
     return bin_dir
 
 
-def check_package(name, version, spec_version, path):
-    """Check if the given package is installed
-    * name: Package name
-    * path: path where the binary files of the package are stored
+def check_package(
+    name: str, version: str, spec_version: str, path: Path
+) -> bool:
+    """Check if the given package is ok
+       (and can be installed without problems)
+    * INPUTS:
+      - name: Package name
+      - version: Package version
+      - spec_version: semantic version constraint
+      - path: path where the binary files of the package are stored
+
+    * OUTPUT:
+      - True: Package
     """
 
     # Apio package 'gtkwave' only exists for Windows.
@@ -430,7 +442,7 @@ def check_package(name, version, spec_version, path):
         return True
 
     # Check package path
-    if not isdir(path):
+    if path and not path.is_dir():
         show_package_path_error(name)
         show_package_install_instructions(name)
         return False
@@ -444,20 +456,33 @@ def check_package(name, version, spec_version, path):
     return True
 
 
-def check_package_version(version, spec_version):
-    """DOC: TODO"""
+def check_package_version(version: str, spec_version: str) -> bool:
+    """Check if a given version satisfy the semantic version constraints
+    * INPUTS:
+      - version: Package version (Ex. '0.0.9')
+      - spec_version: semantic version constraint (Ex. '>=0.0.1')
+    * OUTPUT:
+      - True: Version ok!
+      - False: Version not ok! or incorrect version number
+    """
 
+    # -- Build a semantic version object
     spec = semantic_version.SimpleSpec(spec_version)
+
+    # -- Check it!
     try:
         semver = semantic_version.Version(version)
+
+    # -- Incorrect version number
     except ValueError:
         return False
 
+    # -- Check the version (True if the semantic version is satisfied)
     return semver in spec
 
 
-def show_package_version_warning(name, version, spec_version):
-    """DOC: TODO"""
+def show_package_version_warning(name: str, version: str, spec_version: str):
+    """Print warning message: semantic version does not match!"""
 
     message = (
         f"Warning: package '{name}' version {version}\n"
@@ -466,57 +491,68 @@ def show_package_version_warning(name, version, spec_version):
     click.secho(message, fg="yellow")
 
 
-def show_package_path_error(name):
-    """DOC: TODO"""
+def show_package_path_error(name: str):
+    """Display an error: package Not installed
+    * INPUTs:
+      - name: Package name
+    """
 
     message = f"Error: package '{name}' is not installed"
     click.secho(message, fg="red")
 
 
-def show_package_install_instructions(name):
-    """DOC: TODO"""
+def show_package_install_instructions(name: str):
+    """Print the package install instructions
+    * INPUTs:
+      - name: Package name
+    """
 
     click.secho(f"Please run:\n   apio install {name}", fg="yellow")
 
 
-def _check_apt_get():
-    """Check if apio can be installed through apt-get"""
-    check = False
-    if "TESTING" not in os.environ:
-        result = exec_command(["dpkg", "-l", "apio"])
-        if result and result.get("returncode") == 0:
-            match = re.findall(r"rc\s+apio", result.get("out")) + re.findall(
-                r"ii\s+apio", result.get("out")
-            )
-            check = len(match) > 0
-    return check
+def get_package_version(name: str, profile: dict) -> str:
+    """Get the version of a given package
+    * INPUTs:
+      - name: Package name
+      - profile: Dictrionary with the profile information
+    * OUTPUT:
+      - The version (Ex. '0.0.9')
+    """
 
-
-def get_package_version(name, profile):
-    """DOC: TODO"""
-
+    # -- Default version
     version = ""
+
+    # -- Check if the package is intalled
     if name in profile.packages:
-        version = profile.packages.get(name).get("version")
+        version = profile.packages[name]["version"]
+
+    # -- Return the version
     return version
 
 
-def get_package_spec_version(name, resources):
-    """DOC: TODO"""
+def get_package_spec_version(name: str, resources: dict) -> str:
+    """Get the version restrictions for a given package
+    * INPUTs:
+      * name: Package name
+      * resources: Apio resources object
+    * OUTPUT: version restrictions for that package
+      Ex. '>=1.1.0,<1.2.0'
+    """
 
+    # -- No restrictions by default
     spec_version = ""
-    if name in resources.distribution.get("packages"):
-        spec_version = resources.distribution.get("packages").get(name)
+
+    # -- Check that the package is valid
+    if name in resources.distribution["packages"]:
+
+        # -- Get the package restrictions
+        spec_version = resources.distribution["packages"][name]
+
+    # -- Return the restriction
     return spec_version
 
 
-def change_filemtime(path, time):
-    """DOC: TODO"""
-
-    os.utime(path, (time, time))
-
-
-def exec_command(*args, **kwargs) -> dict:  # pragma: no cover
+def exec_command(*args, **kwargs) -> dict:
     """Execute the given command:
 
     INPUTS:
@@ -535,9 +571,6 @@ def exec_command(*args, **kwargs) -> dict:  # pragma: no cover
 
     Example:  exec_command(['scons', '-Q', '-c', '-f', 'SConstruct'])
     """
-
-    # -- DEBUG:
-    print(f"--------> DEBUG: Command: {args=},{kwargs=}")
 
     # -- Default value to return after the command execution
     # -- out: string with the command output
@@ -558,9 +591,6 @@ def exec_command(*args, **kwargs) -> dict:  # pragma: no cover
     # -- It overrides the default flags
     flags.update(kwargs)
 
-    # -- DEBUG
-    print("--------> DEBUG: Llega aquí 1!!!!")
-
     # -- Execute the command!
     try:
         with subprocess.Popen(*args, **flags) as proc:
@@ -579,21 +609,11 @@ def exec_command(*args, **kwargs) -> dict:  # pragma: no cover
         click.secho(f"Command not found:\n{args}", fg="red")
         sys.exit(1)
 
-    # W0703: Catching too general exception Exception (broad-except)
-    # pylint: disable=W0703
-    except Exception as exc:
-        print("Llega aqui2??")
-        click.secho(str(exc), fg="red")
-        sys.exit(1)
-
     # -- Close the stdout and stderr pipes
     finally:
         for std in ("stdout", "stderr"):
             if isinstance(flags[std], AsyncPipe):
                 flags[std].close()
-
-    # -- DEBUG
-    print("--------> DEBUG: Llega aquí 2!!!!")
 
     # -- Process the output from the stdout and stderr
     # -- if they exist
@@ -602,14 +622,8 @@ def exec_command(*args, **kwargs) -> dict:  # pragma: no cover
         # -- Construct the Name "stdout" or "stderr"
         std = f"std{inout}"
 
-        # -- DEBUG
-        print(f"--------> DEBUG: Llega aquí 3!!!! {std=}")
-
         # -- Do it only if they have been assigned
         if isinstance(flags[std], AsyncPipe):
-
-            # -- DEBUG
-            print(f"--------> DEBUG: Llega aquí 4!!!! {std=}")
 
             # -- Get the text
             buffer = flags[std].get_buffer()
@@ -619,9 +633,6 @@ def exec_command(*args, **kwargs) -> dict:  # pragma: no cover
             # -- result["err"] contains stderr
             result[inout] = "\n".join(buffer)
             result[inout].strip()
-
-    # -- DEBUG
-    print(f"--------> DEBUG: {result=}")
 
     return result
 
@@ -682,27 +693,22 @@ def print_exception_developers(e):
     click.secho(f"{e}\n", fg="yellow")
 
 
-def mkdir(path):
-    """DOC: TODO"""
-
-    path = dirname(path)
-    if not exists(path):
-        try:
-            os.makedirs(path)
-        except OSError:
-            pass
-
-
-def check_dir(_dir):
-    """Check if the given path is a folder. If no path is given
-    the current path is used"""
+def check_dir(_dir: Path) -> Path:
+    """Check if the given path is a folder. It it does not exists
+    the folder is created. If no path is given the current working
+    directory is used
+      * INPUTS:
+        * _dir: The Path to check
+      * OUTPUT:
+        * The new path (if not given)
+    """
 
     # -- If no path is given, get the current working directory
-    if _dir is None:
-        _dir = os.getcwd()
+    if not _dir:
+        _dir = Path.cwd()
 
     # -- Check if the path is a file or a folder
-    if isfile(_dir):
+    if _dir.is_file():
         # -- It is a file! Error! Exit!
         click.secho(
             f"Error: project directory is already a file: {_dir}", fg="red"
@@ -711,13 +717,13 @@ def check_dir(_dir):
         sys.exit(1)
 
     # -- If the folder does not exist....
-    if not exists(_dir):
+    if not _dir.exists():
         # -- Warning
         click.secho(f"Warning: The path does not exist: {_dir}", fg="yellow")
 
         # -- Create the folder
         click.secho(f"Creating folder: {_dir}")
-        os.makedirs(_dir)
+        _dir.mkdir()
 
     # -- Return the path
     return _dir
@@ -743,55 +749,127 @@ def command(function):
     return decorate
 
 
-def get_serial_ports():
-    """DOC: TODO"""
+def get_serial_ports() -> list:
+    """Get a list of the serial port devices connected
+    * OUTPUT: A list with the devides
+         Ex: [{'port': '/dev/ttyACM0',
+               'description': 'ttyACM0',
+               'hwid': 'USB VID:PID=1D50:6130 LOCATION=1-5:1.0'}]
+    """
 
+    # -- Initial empty device list
     result = []
 
-    for port, description, hwid in comports():
+    # -- Use the serial.tools.list_ports module for reading the
+    # -- serial ports
+    # -- More info:
+    # --   https://pyserial.readthedocs.io/en/latest/tools.html
+    list_port_info = comports()
+
+    # -- Only the USB serial ports are included
+    # -- in the final list
+    for port, description, hwid in list_port_info:
+
+        # -- Not a serial port: ignore. Proceed to the
+        # -- next device
         if not port:
             continue
+
+        # -- If it has the "VID:PID" string, it is an USB serial port
         if "VID:PID" in hwid:
+
+            # -- Add to the final list
             result.append(
                 {"port": port, "description": description, "hwid": hwid}
             )
 
+    # -- Return the list of serial ports
     return result
 
 
-# W0703: Catching too general exception Exception (broad-except)
-# pylint: disable=W0703
-def get_tinyprog_meta():
-    """DOC: TODO"""
+def get_tinyprog_meta() -> list:
+    """Special function for the TinyFPGA board
+     Get information directly from the board, just by
+     executing the command: "tinyprog --pyserial --meta"
 
-    # -- FIX IT!
-    _command = join(get_bin_dir(), "tinyprog")
-    _command = "tinyprog"
+     OUTPUT: It returns a list with the meta-data of all
+       the TinyFPGA boards connected
+       Ex:
+    '[ {"boardmeta": {
+          "name": "TinyFPGA BX",
+          "fpga": "ice40lp8k-cm81",
+          "hver": "1.0.0",
+          "uuid": "7d41d659-876b-454a-9a91-51e5f157e80c"
+         },
+       "bootmeta": {
+         "bootloader": "TinyFPGA USB Bootloader",
+         "bver": "1.0.1",
+         "update": "https://tinyfpga.com/update/tinyfpga-bx",
+         "addrmap": {
+             "bootloader": "0x000a0-0x28000",
+             "userimage": "0x28000-0x50000",
+             "userdata": "0x50000-0x100000"
+          }\n
+        },
+        "port": "/dev/ttyACM0"\n
+       }
+     ]'
+    """
+
+    # -- Get the Apio executable folder
+    apio_bin_dir = get_bin_dir()
+
+    # -- Construct the command to execute
+    _command = apio_bin_dir / "tinyprog"
+
+    # -- Check if the executable exist
+    # -- In it does not exist, try with just the
+    # -- name: "tinyprog"
+    if not _command.exists():
+        _command = "tinyprog"
+
+    # -- Execute the command!
+    # -- It will return the meta information as a json string
     result = exec_command([_command, "--pyserial", "--meta"])
+
+    # -- Get the output
+    out = result["out"]
+
     try:
-        out = result.get("out", "")
-        if out:
-            return json.loads(out)
-    except Exception as exc:
-        print(exc)
+        # -- Convert the json string to an object (list)
+        meta = json.loads(out)
+
+    except json.decoder.JSONDecodeError as exc:
+        click.secho(f"Invalid data provided by {_command}", fg="red")
+        click.secho(f"{exc}", fg="red")
         return []
-    return []
+
+    # -- Return the meta-data
+    return meta
 
 
 # pylint: disable=E1101
 # -- E1101: Instance of 'module' has no '__file__' member (no-member)
-def get_bin_dir():
-    """DOC: TODO"""
+def get_bin_dir() -> Path:
+    """Get the Apio executable Path"""
 
-    candidate = dirname(sys.modules["__main__"].__file__)
-    # Windows + virtualenv = 💩
+    # -- Get the apio main module
+    main_mod = sys.modules["__main__"]
+
+    # -- Get the full path of the apio executable file
+    exec_filename = Path(main_mod.__file__)
+
+    # -- Get its parent directory
+    bin_dir = exec_filename.parent
+
+    # -- Special case for Windows + virtualenv
     # In this case the main file is: venv/Scripts/apio.exe/__main__.py!
     # This is not good because venv/Scripts/apio.exe is not a directory
     # So here we go with the workaround:
-    if candidate.endswith(".exe"):
-        return dirname(candidate)
+    if bin_dir.suffix == ".exe":
+        return bin_dir.parent
 
-    return candidate
+    return bin_dir
 
 
 def get_python_version() -> str:

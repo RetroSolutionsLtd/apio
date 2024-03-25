@@ -6,26 +6,11 @@
 # -- Author Jesús Arroyo
 # -- Licence GPLv2
 
-# ---------- RESOURCES
-
-# ---------------------------------------
-# ---- File: resources/packages.json
-# --------------------------------------
-# -- This file contains all the information regarding the available apio
-# -- packages: Repository, version, name...
-# -- This information is access through the Resources.packages method
-
-# -----------------------------------------
-# ---- File: resources/boads.json
-# -----------------------------------------
-# -- Information about all the supported board
-# -- names, fpga family, programmer, ftdi description, vendor id, product id
-
+import sys
 import json
 from collections import OrderedDict
 import shutil
 import click
-
 from apio import util
 from apio.profile import Profile
 
@@ -33,38 +18,75 @@ from apio.profile import Profile
 BOARDS_MSG = (
     """
 Use `apio init --board <boardname>` to create a new apio """
-    """project for that board"""
+    """project for that board\n"""
 )
 
-# -- Packages marked as obsoletes
-# -- The value is the replacement package (if any)
-OBSOLETE_PKGS = {}
+# ---------- RESOURCES
+RESOURCES_DIR = "resources"
+# ---------------------------------------
+# ---- File: resources/packages.json
+# --------------------------------------
+# -- This file contains all the information regarding the available apio
+# -- packages: Repository, version, name...
+# -- This information is access through the Resources.packages method
+PACKAGES_JSON = "packages.json"
+
+# -----------------------------------------
+# ---- File: resources/boads.json
+# -----------------------------------------
+# -- Information about all the supported boards
+# -- names, fpga family, programmer, ftdi description, vendor id, product id
+BOARDS_JSON = "boards.json"
+
+# -----------------------------------------
+# ---- File: resources/fpgas.json
+# -----------------------------------------
+# -- Information about all the supported fpgas
+# -- arch, type, size, packaging
+FPGAS_JSON = "fpgas.json"
+
+# -----------------------------------------
+# ---- File: resources/programmers.json
+# -----------------------------------------
+# -- Information about all the supported programmers
+# -- name, command to execute, arguments...
+PROGRAMMERS_JSON = "programmers.json"
+
+# -----------------------------------------
+# ---- File: resources/distribution.json
+# -----------------------------------------
+# -- Information about all the supported apio and pip packages
+DISTRIBUTION_JSON = "distribution.json"
 
 
 class Resources:
     """Resource manager. Class for accesing to all the resources"""
 
-    def __init__(self, platform=""):
-        # -- Read the packages information
-        self.packages = self._load_resource("packages")
+    def __init__(self, platform: str = ""):
+
+        # -- Read the apio packages information
+        self.packages = self._load_resource(PACKAGES_JSON)
 
         # -- Read the boards information
-        self.boards = self._load_resource("boards")
+        self.boards = self._load_resource(BOARDS_JSON)
 
-        self.fpgas = self._load_resource("fpgas")
-        self.programmers = self._load_resource("programmers")
-        self.distribution = self._load_resource("distribution")
+        # -- Read the FPGAs information
+        self.fpgas = self._load_resource(FPGAS_JSON)
 
-        # Check available packages
-        self.packages = self._check_packages(self.packages, platform)
+        # -- Read the programmers information
+        self.programmers = self._load_resource(PROGRAMMERS_JSON)
 
-        # Sort resources
+        # -- Read the distribution information
+        self.distribution = self._load_resource(DISTRIBUTION_JSON)
+
+        # -- Filter packages: Store only the packages for
+        # -- the given platform
+        self._filter_packages(platform)
+
+        # ---------  Sort resources
         self.packages = OrderedDict(
             sorted(self.packages.items(), key=lambda t: t[0])
         )
-
-        # -- Obsolete packages
-        self.obsolete_pkgs = OBSOLETE_PKGS
 
         self.boards = OrderedDict(
             sorted(self.boards.items(), key=lambda t: t[0])
@@ -72,59 +94,155 @@ class Resources:
         self.fpgas = OrderedDict(
             sorted(self.fpgas.items(), key=lambda t: t[0])
         )
+
+        # -- Default profile file
         self.profile = None
 
     @staticmethod
-    def _load_resource(name):
+    def _load_resource(name: str) -> dict:
         """Load the resources from a given json file
-        * Name: Name of the file without extension:
-         * boards: Load the boards
-         * distribution
-         * fpgas
-         * packages
-         * programmers
+        * INPUTS:
+          * Name: Name of the json file
+            Use the following constants:
+              * PACKAGES_JSON
+              * BOARD_JSON
+              * FPGAS_JSON
+              * PROGRAMMERS_JSON
+              * DISTRIBUTION_JSON
+        * OUTPUT: The dicctionary with the data
+          In case of error it raises an exception and finish
         """
 
-        # -- Default return value: no resource
-        resource = None
-
         # -- Build the filepath: Ex. resources/fpgas.json
-        filepath = util.get_full_path("resources") / f"{name}.json"
+        filepath = util.get_full_path(RESOURCES_DIR) / name
 
-        # -- Open the json file and convert it to an object
-        with filepath.open(encoding="utf8") as file:
-            resource = json.loads(file.read())
+        # -- Read the json file
+        try:
+            with filepath.open(encoding="utf8") as file:
+
+                # -- Read the json file
+                data_json = file.read()
+
+        # -- json file NOT FOUND! This is an apio system error
+        # -- It should never ocurr unless there is a bug in the
+        # -- apio system files, or a bug when calling this function
+        # -- passing a wrong file
+        except FileNotFoundError as exc:
+
+            # -- Display Main error
+            click.secho("Apio System Error! JSON file not found", fg="red")
+
+            # -- Display the affected file (in a different color)
+            apio_file_msg = click.style("Apio file: ", fg="yellow")
+            filename = click.style(f"{filepath}", fg="blue")
+            click.secho(f"{apio_file_msg} {filename}")
+
+            # -- Display the specific error message
+            click.secho(f"{exc}\n", fg="red")
+
+            # -- Abort!
+            sys.exit(2)
+
+        # -- Parse the json format!
+        try:
+            resource = json.loads(data_json)
+
+        # -- Invalid json format! This is an apio system error
+        # -- It should never ocurr unless some develeper has
+        # -- made a mistake when changing the json file
+        except json.decoder.JSONDecodeError as exc:
+
+            # -- Display Main error
+            click.secho("Apio System Error! Invalid JSON file", fg="red")
+
+            # -- Display the affected file (in a different color)
+            apio_file_msg = click.style("Apio file: ", fg="yellow")
+            filename = click.style(f"{filepath}", fg="blue")
+            click.secho(f"{apio_file_msg} {filename}")
+
+            # -- Display the specific error message
+            click.secho(f"{exc}\n", fg="red")
+
+            # -- Abort!
+            sys.exit(1)
 
         # -- Return the object for the resource
         return resource
 
-    def get_package_release_name(self, package):
-        """DOC: TODO"""
+    def get_package_release_name(self, package: str) -> str:
+        """return the package name"""
 
-        return self.packages.get(package).get("release").get("package_name")
+        try:
+            package_name = self.packages[package]["release"]["package_name"]
 
-    def get_packages(self):
-        """DOC: TODO"""
+        # -- This error should never ocurr
+        except KeyError as excp:
+            click.secho(f"Apio System Error! Invalid key: {excp}", fg="red")
+            click.secho(
+                "Module: resources.py. Function: get_package_release_name()",
+                fg="red",
+            )
 
-        # Classify packages
+            # -- Abort!
+            sys.exit(1)
+
+        except TypeError as excp:
+
+            click.secho(f"Apio System Error! {excp}", fg="red")
+            click.secho(
+                "Module: resources.py. Function: get_package_release_name()",
+                fg="red",
+            )
+
+            # -- Abort!
+            sys.exit(1)
+
+        # -- Return the name
+        return package_name
+
+    def get_packages(self) -> tuple[list, list]:
+        """Get all the packages, classified in installed and
+        not installed
+        * OUTPUT:
+          - A tuple of two lists: Installed and not installed packages
+        """
+
+        # -- Classify the packages in two lists
         installed_packages = []
         notinstalled_packages = []
 
+        # -- Go though all the apio packages
         for package in self.packages:
+
+            # -- Collect information about the package
             data = {
                 "name": package,
                 "version": None,
-                "description": self.packages.get(package).get("description"),
+                "description": self.packages[package]["description"],
             }
+
+            # -- Check if this package is installed
             if package in self.profile.packages:
-                data["version"] = self.profile.get_package_version(
-                    package, self.get_package_release_name(package)
-                )
+
+                # -- Get the installed version
+                version = self.profile.packages[package]["version"]
+
+                # -- Store the version
+                data["version"] = version
+
+                # -- Store the package
                 installed_packages += [data]
+
+            # -- The package is not installed
             else:
                 notinstalled_packages += [data]
 
+        # -- Check the installed packages and update
+        # -- its information
         for package in self.profile.packages:
+
+            # -- The package is not known!
+            # -- Strange case
             if package not in self.packages:
                 data = {
                     "name": package,
@@ -133,6 +251,7 @@ class Resources:
                 }
                 installed_packages += [data]
 
+        # -- Return the packages, classified
         return installed_packages, notinstalled_packages
 
     def list_packages(self, installed=True, notinstalled=True):
@@ -143,143 +262,200 @@ class Resources:
         # Classify packages
         installed_packages, notinstalled_packages = self.get_packages()
 
-        # Print tables
+        # -- Calculate the terminal width
         terminal_width, _ = shutil.get_terminal_size()
 
+        # -- String with a horizontal line with the same width
+        # -- as the terminal
+        line = "─" * terminal_width
+        dline = "═" * terminal_width
+
         if installed and installed_packages:
-            # - Print installed packages table
-            click.echo("\nInstalled packages:\n")
 
-            package_list_tpl = "{name:20} {description:30} {version:<8}"
-
-            click.echo("-" * terminal_width)
-            click.echo(
-                package_list_tpl.format(
-                    name=click.style("Name", fg="cyan"),
-                    version="Version",
-                    description="Description",
-                )
-            )
-            click.echo("-" * terminal_width)
+            # ------- Print installed packages table
+            # -- Print the header
+            click.echo()
+            click.secho(dline, fg="green")
+            click.secho("Installed packages:", fg="green")
 
             for package in installed_packages:
-                click.echo(
-                    package_list_tpl.format(
-                        name=click.style(package.get("name"), fg="cyan"),
-                        version=package.get("version"),
-                        description=package.get("description"),
-                    )
-                )
+                click.secho(line)
+                name = click.style(f"{package['name']}", fg="cyan", bold=True)
+                version = package["version"]
+                description = package["description"]
+
+                click.secho(f"• {name} {version}")
+                click.secho(f"  {description}")
+
+            click.secho(dline, fg="green")
+            click.echo(f"Total: {len(installed_packages)}")
 
         if notinstalled and notinstalled_packages:
-            # - Print not installed packages table
-            click.echo("\nNot installed packages:\n")
 
-            package_list_tpl = "{name:20} {description:30}"
-
-            click.echo("-" * terminal_width)
-            click.echo(
-                package_list_tpl.format(
-                    name=click.style("Name", fg="yellow"),
-                    description="Description",
-                )
-            )
-            click.echo("-" * terminal_width)
+            # ------ Print not installed packages table
+            # -- Print the header
+            click.echo()
+            click.secho(dline, fg="yellow")
+            click.secho("Available packages (Not installed):", fg="yellow")
 
             for package in notinstalled_packages:
-                click.echo(
-                    package_list_tpl.format(
-                        name=click.style(package.get("name"), fg="yellow"),
-                        description=package.get("description"),
-                    )
-                )
+
+                click.echo(line)
+                name = click.style(f"• {package['name']}", fg="red")
+                description = package["description"]
+                click.echo(f"{name}  {description}")
+
+            click.secho(dline, fg="yellow")
+            click.echo(f"Total: {len(notinstalled_packages)}")
 
         click.echo("\n")
 
     def list_boards(self):
-        """Return a list with all the supported boards"""
+        """Print all the supported boards and the information of
+        their FPGAs
+        """
 
-        # Print table
-        click.echo("\nSupported boards:\n")
-
-        board_list_tpl = (
-            "{board:25} {fpga:30} {arch:<8} "
-            + "{type:<12} {size:<5} {pack:<10}"
+        # -- Table title
+        title = (
+            click.style("Board", fg="cyan") + " (FPGA, Arch, Type, Size, Pack)"
         )
+
+        # -- Get the terminal size (in characteres)
         terminal_width, _ = shutil.get_terminal_size()
 
-        click.echo("-" * terminal_width)
-        click.echo(
-            board_list_tpl.format(
-                board=click.style("Board", fg="cyan"),
-                fpga="FPGA",
-                arch="Arch",
-                type="Type",
-                size="Size",
-                pack="Pack",
-            )
-        )
-        click.echo("-" * terminal_width)
+        # -- String with a horizontal line with the same width
+        # -- as the terminal
+        line = "─" * terminal_width
 
+        # -- Print the table header
+        click.echo(line)
+        click.echo(title)
+        click.echo(line)
+
+        # -- Print all the boards!
         for board in self.boards:
-            fpga = self.boards.get(board).get("fpga")
-            click.echo(
-                board_list_tpl.format(
-                    board=click.style(board, fg="cyan"),
-                    fpga=fpga,
-                    arch=self.fpgas.get(fpga).get("arch"),
-                    type=self.fpgas.get(fpga).get("type"),
-                    size=self.fpgas.get(fpga).get("size"),
-                    pack=self.fpgas.get(fpga).get("pack"),
-                )
-            )
 
+            # -- Get board FPGA long name
+            fpga = self.boards[board]["fpga"]
+
+            # -- Get information about the FPGA
+            arch = self.fpgas[fpga]["arch"]
+            _type = self.fpgas[fpga]["type"]
+            size = self.fpgas[fpga]["size"]
+            pack = self.fpgas[fpga]["pack"]
+
+            # -- Print the item with information
+            # -- Print the Board in a differnt color
+            board_str = click.style(board, fg="cyan")
+            item_board = f"• {board_str}"
+            item_fpga = f"  (FPGA:{fpga}, {arch}, {_type}, {size}, {pack})"
+
+            # -- Item in one line
+            item = item_board + item_fpga
+
+            # -- If there is enough space, print in one line
+            if len(item) <= terminal_width:
+                click.echo(item)
+
+            # -- Not enough space: Print it in two separate lines
+            else:
+                click.echo(f"{item_board}\n    {item_fpga}")
+
+        # -- Print the Footer
+        click.echo(line)
+        click.echo(f"Total: {len(self.boards)} boards")
+
+        # -- Help message
         click.secho(BOARDS_MSG, fg="green")
 
     def list_fpgas(self):
-        """Return a list with all the supported FPGAs"""
+        """Print all the supported FPGAs"""
 
-        # Print table
-        click.echo("\nSupported FPGAs:\n")
-
-        fpga_list_tpl = "{fpga:40} {arch:<8} {type:<12} {size:<5} {pack:<10}"
+        # -- Table title
+        fpga_header = click.style("FPGA", fg="cyan")
+        title = (
+            f"{fpga_header:40} {'Arch':<8} {'Type':<12}"
+            f" {'Size':<5} {'Pack':<10}"
+        )
+        # -- Get the terminal size (in characteres)
         terminal_width, _ = shutil.get_terminal_size()
 
-        click.echo("-" * terminal_width)
-        click.echo(
-            fpga_list_tpl.format(
-                fpga=click.style("FPGA", fg="cyan"),
-                type="Type",
-                arch="Arch",
-                size="Size",
-                pack="Pack",
-            )
-        )
-        click.echo("-" * terminal_width)
+        # -- String with a horizontal line with the same width
+        # -- as the terminal
+        line = "─" * terminal_width
 
+        # -- Print the table header
+        click.echo(line)
+        click.echo(title)
+        click.echo(line)
+
+        # -- Print all the fpgas!
         for fpga in self.fpgas:
-            click.echo(
-                fpga_list_tpl.format(
-                    fpga=click.style(fpga, fg="cyan"),
-                    arch=self.fpgas.get(fpga).get("arch"),
-                    type=self.fpgas.get(fpga).get("type"),
-                    size=self.fpgas.get(fpga).get("size"),
-                    pack=self.fpgas.get(fpga).get("pack"),
-                )
-            )
 
-    @staticmethod
-    def _check_packages(packages, current_platform=""):
+            # -- Get information about the FPGA
+            arch = self.fpgas[fpga]["arch"]
+            _type = self.fpgas[fpga]["type"]
+            size = self.fpgas[fpga]["size"]
+            pack = self.fpgas[fpga]["pack"]
+
+            # -- Print the item with information
+            # -- Print the FPGA in a differnt color
+            fpga_str = click.style(fpga, fg="cyan")
+            item = (
+                f"• {fpga_str:40} {arch:<8} {_type:<12} {size:<5} {pack:<10}"
+            )
+            click.echo(item)
+
+        # -- Print the Footer
+        click.echo(line)
+        click.echo(f"Total: {len(self.fpgas)} fpgas\n")
+
+    def _filter_packages(self, given_platform):
+        """Filter the apio packages available for the given platform.
+        Some platforms has special packages (Ex. package Drivers is
+        only for windows)
+        * INPUT:
+          * packages: All the apio packages
+          * given_platform: Platform used for filtering the packages.
+              If not given,the current system platform is used
+
+        self.packages is updated. It now contains only the packages
+          for the given platform
+        """
+
+        # -- Final dict with the output packages
         filtered_packages = {}
-        for pkg in packages.keys():
-            check = True
-            release = packages.get(pkg).get("release")
+
+        # -- If not given platform, use the current
+        if not given_platform:
+            given_platform = util.get_systype()
+
+        # -- Check all the packages
+        for pkg in self.packages.keys():
+
+            # -- Get the information about the package
+            release = self.packages[pkg]["release"]
+
+            # -- This packages is available only for certain platforms
             if "available_platforms" in release:
-                platforms = release.get("available_platforms")
-                check = False
-                current_platform = current_platform or util.get_systype()
+
+                # -- Get the available platforms
+                platforms = release["available_platforms"]
+
+                # -- Check all the available platforms
                 for platform in platforms:
-                    check |= current_platform in platform
-            if check:
-                filtered_packages[pkg] = packages.get(pkg)
-        return filtered_packages
+
+                    # -- Match!
+                    if given_platform in platform:
+
+                        # -- Add it to the output dictionary
+                        filtered_packages[pkg] = self.packages[pkg]
+
+            # -- Package for all the platforms
+            else:
+
+                # -- Add it to the output dictionary
+                filtered_packages[pkg] = self.packages[pkg]
+
+        # -- Update the current packages!
+        self.packages = filtered_packages
